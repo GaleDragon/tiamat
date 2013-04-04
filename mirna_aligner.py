@@ -4,7 +4,7 @@ Created on Dec 13, 2012
 @author: jcmorgan
 '''
 from Bio import SeqIO
-import csv, os, difflib, pickle
+import csv, os, difflib, pickle, sys
 import simplejson as json
 
 def findall(sub, string):
@@ -41,23 +41,19 @@ class Full_miRNA_Archive():
         self._preprocess()
         
     def _preprocess(self):
-        print 'preprocessing\t',
         self.reads = self.clip_with_thres(self.reads)
         experimental_gen = refresh_generator(self.reads, 'fasta')
         for e in experimental_gen:
-            print '.',
             r = Experimental_miRNA(e)
             mi = miRNA_Record()
             mi.set_SEQUENCE(str(r.seq))
             self.repository[str(r.id)] = mi
             del r
-        print ''
         
     def start(self):
-        print 'Starting\t',
+        print 'Starting\t', self.lib
         mature = refresh_generator(self.lib, 'fasta')        
         for m in mature:
-            print '.',
             experimental = refresh_generator(self.reads, 'fasta')
             com_list = list()
             for e in experimental:
@@ -70,7 +66,6 @@ class Full_miRNA_Archive():
                 obj.add_SPECIES((m.description, str(m.seq)))
                 obj.set_RECORDS([x[1] for x in com_list])
                 obj.add_COUNT(sum([x[0] for x in com_list]))            
-        print ''
         #self.display()
     
     def display(self):
@@ -119,7 +114,7 @@ class Full_miRNA_Archive():
                 b = len(m.body)
                 eb = e[9+f:9+f+b]
                 s.set_seq2(eb)
-                if m.header==e[1+f:9+f] and s.ratio() >= float(sim):
+                if m.header==e[1+f:9+f] and s.ratio() >= float(self.sim):
                     exp_count = int(l[1])
                     exp_records = l[0]
                     return (exp_count, exp_records)
@@ -128,7 +123,7 @@ class Full_miRNA_Archive():
         
     def preserve(self):
         val = pickle.dumps(self)
-        with open(os.path.join(self.working_dir, '%s.pyk'%(self.name) ), 'w+') as f:
+        with open(os.path.join('Results', self.name, '%s.pyk'%(self.name) ), 'w+') as f:
             f.write(val)
 
 class miRNA_Record():
@@ -260,7 +255,7 @@ class MatureCountFile(TableFile):
             ident = str(m.description).split()[0]
             file_list[ident]=[str(m.seq),0,[]]
         
-        for m in archive.repository.keys():
+        for m in self.archive.repository.keys():
             spec = self.archive.repository[m].get_SPECIES()
             if len(spec) is not 0:
                 for s in spec:
@@ -282,9 +277,38 @@ class ReadsMatureFile(TableFile):
         for e in self.archive.keys():
             r = self.archive[e]
             writer.writerow([r.get_SEQUENCE(), e, r.get_COUNT()])
+
+def main(lib, reads, thres, sim):
+    
+    info = 'mature_libraries'
+    species = os.path.basename(lib)[:-3]
+    name = species
+
+    try:
+        os.mkdir('Results/%s'%species)
+    except:
+        pass
+    
+    
+    archive = Full_miRNA_Archive(name, reads, lib, thres, sim)
+    archive.start()
+    archive.preserve()
+
+    path = os.path.join('Results',species,'ReadsCountFile_%s.tab'%species)
+    rct = ReadsCountFile(path , archive)
+    rct.render()
+
+    path = os.path.join('Results',species,'MatureCountFile_%s.tab'%species)
+    mct = MatureCountFile(path, lib, archive)
+    mct.render()
+    
+    clean_up = True
+    if clean_up:
+        rm = 'rm Results/clipped_*' 
+        os.system(rm)
             
 if __name__=='__main__':
-    info = 'mature_libraries'
+    
 ##    library = os.path.join(info,'Acanthopterygii')
 ##    reads = os.path.join(info,'rna_dna.fasta')
 ##    thres = 500
@@ -293,18 +317,6 @@ if __name__=='__main__':
     reads = sys.argv[2]
     thres = sys.argv[3]
     sim = sys.argv[4]
-    name = 'lahmu'
-    archive = Full_miRNA_Archive(name, reads, library, thres, sim)
-    archive.start()
-    archive.preserve()
+    main(library, reads, thres, sim)
+
     
-    rct = ReadsCountFile('ReadsCountFile.tab', archive)
-    rct.render()
-    
-    rct = MatureCountFile('MatureCountFile.tab', library, archive)
-    rct.render()
-    
-    clean_up = False
-    if clean_up:
-        rm = 'rm %s/Results/clipped_*' % os.getcwd()
-        os.system(rm)
